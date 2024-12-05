@@ -10,7 +10,7 @@ prefix = "https://vm009.rz.uos.de/crawl/"  # Only follow links within this domai
 # Initialize structures
 agenda = [base_url]  # Queue of URLs to visit
 visited_urls = set()  # Keep track of visited URLs to avoid duplicates
-index = {}  # Dictionary to store word-to-URL mappings
+index = {}  # Dictionary to store URL-to-content mappings
 
 
 def fetch_page(url):
@@ -25,19 +25,13 @@ def fetch_page(url):
 
 
 def index_page(url, soup):
-    """Extract words from the page and update the index."""
+    """Extract the full text content of a page and store it in the index."""
     if soup is None:
         return
 
     # Extract text content
-    text = soup.get_text(strip=True)
-    words = re.findall(r'\w+', text.lower())  # Split text into words, convert to lowercase
-
-    for word in words:
-        if word not in index:
-            index[word] = []
-        if url not in index[word]:
-            index[word].append(url)
+    text = soup.get_text(separator=" ", strip=True)  # Get all text content as a single string
+    index[url] = text  # Map the URL to its full text content
 
 
 def is_valid_link(link):
@@ -74,29 +68,34 @@ def crawl():
 
 
 def search(query):
-    """Search the index for pages containing all query words."""
-    words = query.lower().split()
-    if not words:
-        return []
+    """Search the index for pages containing any query words and identify missing words."""
+    query = query.lower().strip()
+    words = query.split()  # Split the query into individual words
+    results = []
 
-    # Find URLs containing all words
-    result = set(index.get(words[0], []))
-    for word in words[1:]:
-        result &= set(index.get(word, []))
+    for url, content in index.items():
+        content_lower = content.lower()
 
-    return list(result)
+        # Find matching and missing words
+        matching_words = [word for word in words if word in content_lower]
+        missing_words = [word for word in words if word not in content_lower]
 
+        # Include the result if at least one word matches
+        if matching_words:
+            try:
+                soup = fetch_page(url)
+                title = soup.title.string.strip() if soup and soup.title else "No Title"
+                results.append({
+                    "url": url,
+                    "title": title,
+                    "missing_words": missing_words  # Include missing words in the result
+                })
+            except Exception as e:
+                print(f"Error fetching title for {url}: {e}")
+                results.append({
+                    "url": url,
+                    "title": "No Title",
+                    "missing_words": missing_words
+                })
 
-if __name__ == "__main__":
-    # Start crawling
-    print("Starting crawl...")
-    crawl()
-    print("Crawling completed!")
-
-    # Display search results
-    while True:
-        query = input("Enter search query (or type 'exit' to quit): ").strip()
-        if query.lower() == "exit":
-            break
-        results = search(query)
-        print(f"Results for '{query}': {results}")
+    return results
